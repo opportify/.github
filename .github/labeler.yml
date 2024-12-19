@@ -1,0 +1,23 @@
+feature:
+  - head-branch: ['^feature', 'feature', '^feat', 'feat']
+
+hotfix:
+  - head-branch: ['^hotfix', 'hotfix']
+
+fix:
+  - head-branch: ['^fix', 'fix']
+
+security:
+  - head-branch: ['^dependabot', 'dependabot']
+
+chore:
+  - head-branch: ['^chore', 'chore']
+
+refactor:
+  - head-branch: ['^refactor', 'refactor']
+
+ci/cd:
+  - head-branch: ['^ci', 'ci']
+
+docs:
+  - head-branch: ['^docs', 'docs']
