@@ -1,0 +1,32 @@
+name: "Pull Request Labeler"
+
+on:
+  workflow_call:
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+jobs:
+  apply-labels:
+    runs-on: ubuntu-latest
+    steps:
+
+      - name: Checkout code main repo
+        uses: actions/checkout@v3
+        with:
+          path: main
+
+      - name: Checkout .github
+        uses: actions/checkout@v3
+        with:
+          repository: opportify/.github
+          path: github-actions 
+
+      - name: Copy labeler.yml
+        run: cp github-actions/.github/labeler.yml main/.github/labeler.yml
+        
+      - name: Apply Labels
+        uses: actions/labeler@v5
+        with:
+          sync-labels: true
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          configuration-path: main/.github/labeler.yml
