@@ -1,0 +1,19 @@
+name: Release
+
+# Drafts this repo's own next release with the shared release-drafter
+# workflow, the same way other repos call it.
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  release-drafter:
+    uses: ./.github/workflows/release-drafter.yml
+    permissions:
+      contents: write
+      pull-requests: read
