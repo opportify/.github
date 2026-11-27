@@ -1,0 +1,56 @@
+name: Allowed Actions
+
+# Reusable workflow: fails when a workflow or composite action uses an action
+# that is not ours (opportify/*) or official GitHub (actions/*, github/*).
+# Local actions (./...) are fine. docker:// images are not allowed.
+#
+# Caller:
+#   jobs:
+#     allowed-actions:
+#       uses: opportify/.github/.github/workflows/allowed-actions.yml@main
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Allowed actions only
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Check every uses reference
+        shell: bash
+        run: |
+          set -euo pipefail
+          allowed_owners='opportify|actions|github'
+          bad=0
+          checked=0
+          while IFS= read -r -d '' file; do
+            lineno=0
+            while IFS= read -r line || [[ -n "${line}" ]]; do
+              lineno=$((lineno + 1))
+              [[ "${line}" =~ ^[[:space:]]*(-[[:space:]]*)?uses:[[:space:]]*[\"\']?([^\"\'[:space:]#]+) ]] || continue
+              ref="${BASH_REMATCH[2]}"
+              checked=$((checked + 1))
+              [[ "${ref}" == ./* ]] && continue
+              owner="$(printf '%s' "${ref%%/*}" | tr '[:upper:]' '[:lower:]')"
+              if [[ "${ref}" == docker://* ]] || ! [[ "${owner}" =~ ^(${allowed_owners})$ ]]; then
+                echo "::error file=${file},line=${lineno}::'${ref}' is not allowed. Use opportify/*, actions/* or github/*."
+                bad=$((bad + 1))
+              fi
+            done < "${file}"
+          done < <(find . -path '*/node_modules' -prune -o \
+                     \( -path './.github/*' -o -name 'action.yml' -o -name 'action.yaml' \) \
+                     \( -name '*.yml' -o -name '*.yaml' \) -type f -print0)
+          echo "Checked ${checked} uses references."
+          if (( bad > 0 )); then
+            echo "::error::${bad} disallowed action reference(s) found"
+            exit 1
+          fi

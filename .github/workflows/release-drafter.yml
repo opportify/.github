@@ -1,21 +1,67 @@
 name: Release Drafter
 
+# Reusable workflow: drafts the next GitHub release from PRs merged since the
+# last published release.
+#
+# Uses our own script (.github/scripts/release-drafter) instead of the
+# third-party release-drafter/release-drafter action. Config comes from the
+# calling repo's .github/release-drafter.yml, falling back to the one in this repo.
+#
+# Caller (no secrets needed, do not use "secrets: inherit"):
+#   jobs:
+#     release-drafter:
+#       uses: opportify/.github/.github/workflows/release-drafter.yml@main
+#       permissions:
+#         contents: write
+#         pull-requests: read
+
 on:
   workflow_call:
-  push:
-    branches:
-      - main
 
 permissions:
   contents: read
 
 jobs:
-  update_release_draft:
+  draft-release:
+    name: Draft Release
+    runs-on: ubuntu-latest
     permissions:
       contents: write
-      pull-requests: write
-    runs-on: ubuntu-latest
+      pull-requests: read
     steps:
-      - uses: release-drafter/release-drafter@v6
+      - name: Checkout calling repo
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          path: repo
+          persist-credentials: false
+
+      - name: Checkout opportify/.github (scripts)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: opportify/.github
+          ref: main
+          path: dotgithub
+          persist-credentials: false
+
+      - name: Use org config when the repo has none
+        run: |
+          if [ ! -f repo/.github/release-drafter.yml ]; then
+            mkdir -p repo/.github
+            cp dotgithub/.github/release-drafter.yml repo/.github/release-drafter.yml
+          fi
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.x
+
+      - name: Install dependencies
+        working-directory: dotgithub/.github/scripts/release-drafter
+        run: npm ci --ignore-scripts
+
+      - name: Draft release
+        working-directory: dotgithub/.github/scripts/release-drafter
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
+          WORKSPACE: ${{ github.workspace }}/repo
+        run: node index.mjs
