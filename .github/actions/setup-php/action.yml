@@ -1,0 +1,197 @@
+name: Setup PHP
+description: >
+  Install a PHP version, its extensions and Composer v2 on an Ubuntu runner.
+  Opportify-owned replacement for shivammathur/setup-php.
+
+inputs:
+  php-version:
+    description: PHP version to install, e.g. "8.3".
+    required: true
+  extensions:
+    description: Comma-separated PHP extensions, e.g. "mbstring, intl, pdo_mysql".
+    required: false
+    default: ""
+  coverage:
+    description: Coverage driver to enable — "none", "xdebug" or "pcov".
+    required: false
+    default: none
+  tools:
+    description: Tools to install. Only "composer" (Composer v2) is supported; pass "" to skip.
+    required: false
+    default: composer
+
+outputs:
+  php-version:
+    description: The full PHP version that was installed.
+    value: ${{ steps.verify.outputs.php-version }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install PHP
+      shell: bash
+      env:
+        PHP_VERSION: ${{ inputs.php-version }}
+      run: |
+        set -euo pipefail
+        # Launchpad answers 503 on some downloads; apt keeps what it already
+        # fetched, so each retry only re-downloads what is still missing.
+        apt_install() {
+          local attempt
+          for attempt in 1 2 3 4 5 6; do
+            if sudo apt-get install -y -q --no-install-recommends "$@"; then return 0; fi
+            echo "apt-get install failed (attempt ${attempt}/6); retrying in $(( attempt * 15 ))s"
+            sleep $(( attempt * 15 ))
+          done
+          echo "::error::apt-get install $* failed after 6 attempts (Launchpad may be down: https://status.canonical.com)"
+          return 1
+        }
+        if [[ "${RUNNER_OS}" != "Linux" ]] || ! command -v apt-get >/dev/null; then
+          echo "::error::setup-php supports Ubuntu runners only"; exit 1
+        fi
+        if [[ ! "${PHP_VERSION}" =~ ^[0-9]+\.[0-9]+$ ]]; then
+          echo "::error::php-version must look like 8.3 (got '${PHP_VERSION}')"; exit 1
+        fi
+        if ! command -v "php${PHP_VERSION}" >/dev/null; then
+          echo "PHP ${PHP_VERSION} is not preinstalled; installing from ppa:ondrej/php"
+          sudo add-apt-repository -y --no-update ppa:ondrej/php
+          # Launchpad's PPA host sometimes answers 503: retry with backoff
+          # until apt can see the package.
+          for attempt in 1 2 3 4 5 6 7 8; do
+            sudo apt-get update -q || true
+            if apt-cache policy "php${PHP_VERSION}-cli" | grep 'Candidate: [0-9]' >/dev/null; then break; fi
+            if (( attempt == 8 )); then
+              echo "::error::php${PHP_VERSION}-cli is not available from ppa:ondrej/php (Launchpad may be down: https://status.canonical.com)"; exit 1
+            fi
+            echo "php${PHP_VERSION}-cli not visible yet (attempt ${attempt}/8); retrying in $(( attempt * 15 ))s"
+            sleep $(( attempt * 15 ))
+          done
+          apt_install "php${PHP_VERSION}-cli" "php${PHP_VERSION}-common"
+        fi
+        for bin in php phar phar.phar phpize php-config; do
+          if [[ -x "/usr/bin/${bin}${PHP_VERSION}" ]]; then
+            sudo update-alternatives --set "${bin}" "/usr/bin/${bin}${PHP_VERSION}" >/dev/null 2>&1 || true
+          fi
+        done
+
+    - name: Install PHP extensions
+      if: inputs.extensions != ''
+      shell: bash
+      env:
+        PHP_VERSION: ${{ inputs.php-version }}
+        EXTENSIONS: ${{ inputs.extensions }}
+      run: |
+        set -euo pipefail
+        # Launchpad answers 503 on some downloads; apt keeps what it already
+        # fetched, so each retry only re-downloads what is still missing.
+        apt_install() {
+          local attempt
+          for attempt in 1 2 3 4 5 6; do
+            if sudo apt-get install -y -q --no-install-recommends "$@"; then return 0; fi
+            echo "apt-get install failed (attempt ${attempt}/6); retrying in $(( attempt * 15 ))s"
+            sleep $(( attempt * 15 ))
+          done
+          echo "::error::apt-get install $* failed after 6 attempts (Launchpad may be down: https://status.canonical.com)"
+          return 1
+        }
+        php_bin="php${PHP_VERSION}"
+        loaded() { "${php_bin}" -m | tr '[:upper:]' '[:lower:]' | grep -x "$1" >/dev/null; }
+        packages=()
+        IFS=',' read -ra wanted <<< "${EXTENSIONS}"
+        for raw in "${wanted[@]}"; do
+          ext="$(echo "${raw}" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')"
+          [[ -z "${ext}" ]] && continue
+          if [[ ! "${ext}" =~ ^[a-z0-9_]+$ ]]; then
+            echo "::error::invalid extension name '${ext}'"; exit 1
+          fi
+          loaded "${ext}" && continue
+          case "${ext}" in
+            pdo_mysql|mysqli|mysqlnd) pkg=mysql ;;
+            pdo_pgsql) pkg=pgsql ;;
+            pdo_sqlite|sqlite3) pkg=sqlite3 ;;
+            *) pkg="${ext}" ;;
+          esac
+          packages+=("php${PHP_VERSION}-${pkg}")
+        done
+        if (( ${#packages[@]} )); then
+          sudo apt-get update -q || true
+          mapfile -t unique_packages < <(printf '%s\n' "${packages[@]}" | sort -u)
+          apt_install "${unique_packages[@]}"
+        fi
+        missing=()
+        for raw in "${wanted[@]}"; do
+          ext="$(echo "${raw}" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')"
+          [[ -z "${ext}" ]] && continue
+          loaded "${ext}" || missing+=("${ext}")
+        done
+        if (( ${#missing[@]} )); then
+          echo "::error::PHP extensions not loaded after install: ${missing[*]}"; exit 1
+        fi
+
+    - name: Configure coverage driver
+      shell: bash
+      env:
+        PHP_VERSION: ${{ inputs.php-version }}
+        COVERAGE: ${{ inputs.coverage }}
+      run: |
+        set -euo pipefail
+        # Launchpad answers 503 on some downloads; apt keeps what it already
+        # fetched, so each retry only re-downloads what is still missing.
+        apt_install() {
+          local attempt
+          for attempt in 1 2 3 4 5 6; do
+            if sudo apt-get install -y -q --no-install-recommends "$@"; then return 0; fi
+            echo "apt-get install failed (attempt ${attempt}/6); retrying in $(( attempt * 15 ))s"
+            sleep $(( attempt * 15 ))
+          done
+          echo "::error::apt-get install $* failed after 6 attempts (Launchpad may be down: https://status.canonical.com)"
+          return 1
+        }
+        case "${COVERAGE}" in
+          none)
+            sudo phpdismod -v "${PHP_VERSION}" -s cli xdebug pcov 2>/dev/null || true ;;
+          xdebug|pcov)
+            other=$([[ "${COVERAGE}" == xdebug ]] && echo pcov || echo xdebug)
+            apt_install "php${PHP_VERSION}-${COVERAGE}"
+            sudo phpdismod -v "${PHP_VERSION}" -s cli "${other}" 2>/dev/null || true
+            sudo phpenmod -v "${PHP_VERSION}" -s cli "${COVERAGE}"
+            if [[ "${COVERAGE}" == xdebug ]]; then
+              echo "XDEBUG_MODE=coverage" >> "${GITHUB_ENV}"
+            fi ;;
+          *)
+            echo "::error::coverage must be none, xdebug or pcov (got '${COVERAGE}')"; exit 1 ;;
+        esac
+
+    - name: Install Composer v2
+      if: contains(inputs.tools, 'composer')
+      shell: bash
+      run: |
+        set -euo pipefail
+        if command -v composer >/dev/null && composer --version 2>/dev/null | grep 'Composer version 2' >/dev/null; then
+          sudo composer self-update --2 -q 2>/dev/null || true
+        else
+          tmp="$(mktemp -d)"
+          expected="$(curl -fsSL https://composer.github.io/installer.sig)"
+          curl -fsSL https://getcomposer.org/installer -o "${tmp}/composer-setup.php"
+          actual="$(php -r "echo hash_file('sha384', '${tmp}/composer-setup.php');")"
+          if [[ "${expected}" != "${actual}" ]]; then
+            echo "::error::Composer installer checksum mismatch"; exit 1
+          fi
+          sudo php "${tmp}/composer-setup.php" --2 --quiet --install-dir=/usr/local/bin --filename=composer
+          rm -rf "${tmp}"
+        fi
+        composer --version
+
+    - name: Verify PHP
+      id: verify
+      shell: bash
+      env:
+        PHP_VERSION: ${{ inputs.php-version }}
+      run: |
+        set -euo pipefail
+        actual="$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;')"
+        if [[ "${actual}" != "${PHP_VERSION}" ]]; then
+          echo "::error::php on PATH is ${actual}, expected ${PHP_VERSION}"; exit 1
+        fi
+        php --version
+        echo "php-version=$(php -r 'echo PHP_VERSION;')" >> "${GITHUB_OUTPUT}"

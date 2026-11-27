@@ -1,0 +1,15 @@
+{
+  "name": "release-drafter",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Opportify release drafter",
+  "private": true,
+  "license": "MIT",
+  "dependencies": {
+    "@octokit/rest": "^21.0.2",
+    "js-yaml": "^4.1.0"
+  },
+  "scripts": {
+    "test": "node --test"
+  }
+}
