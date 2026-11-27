@@ -60,7 +60,7 @@ test("formatReleaseNotes: escapes title characters and fills template variables"
     template: "$CHANGES\n$OWNER/$REPOSITORY $PREVIOUS_TAG...v$RESOLVED_VERSION",
   };
   const notes = formatReleaseNotes(config, [pr(3, "fix my_var *now*")], {
-    owner: "opportify", repo: "website", previousTag: "v1.0.0", nextVersion: "1.0.1",
+    owner: "example-org", repo: "example-repo", previousTag: "v1.0.0", nextVersion: "1.0.1",
   });
-  assert.equal(notes, "- fix my\\_var \\*now\\* @dev (#3)\nopportify/website v1.0.0...v1.0.1");
+  assert.equal(notes, "- fix my\\_var \\*now\\* @dev (#3)\nexample-org/example-repo v1.0.0...v1.0.1");
 });
