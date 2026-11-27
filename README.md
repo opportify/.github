@@ -1,7 +1,7 @@
 # .github
 
 Public, org-wide GitHub defaults and reusable workflows for Opportify.
-Public repos (the SDKs) use these because they cannot call workflows in our private `opportify/github-actions` repo.
+Our public repos (the SDKs) use the reusable workflows and actions here.
 
 ## Policy
 
