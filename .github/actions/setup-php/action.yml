@@ -34,7 +34,7 @@ runs:
         PHP_VERSION: ${{ inputs.php-version }}
       run: |
         set -euo pipefail
-        # Launchpad answers 503 on some downloads; apt keeps what it already
+        # Package mirrors sometimes fail mid-download; apt keeps what it already
         # fetched, so each retry only re-downloads what is still missing.
         apt_install() {
           local attempt
@@ -43,7 +43,7 @@ runs:
             echo "apt-get install failed (attempt ${attempt}/6); retrying in $(( attempt * 15 ))s"
             sleep $(( attempt * 15 ))
           done
-          echo "::error::apt-get install $* failed after 6 attempts (Launchpad may be down: https://status.canonical.com)"
+          echo "::error::apt-get install $* failed after 6 attempts"
           return 1
         }
         if [[ "${RUNNER_OS}" != "Linux" ]] || ! command -v apt-get >/dev/null; then
@@ -53,18 +53,36 @@ runs:
           echo "::error::php-version must look like 8.3 (got '${PHP_VERSION}')"; exit 1
         fi
         if ! command -v "php${PHP_VERSION}" >/dev/null; then
-          echo "PHP ${PHP_VERSION} is not preinstalled; installing from ppa:ondrej/php"
-          sudo add-apt-repository -y --no-update ppa:ondrej/php
-          # Launchpad's PPA host sometimes answers 503: retry with backoff
-          # until apt can see the package.
-          for attempt in 1 2 3 4 5 6 7 8; do
+          # ppa:ondrej/php is frozen (no updates, no Ubuntu 26.04 builds); the
+          # same maintainer now publishes at packages.sury.org. Take only the
+          # keyring file from its package and check the signing key's
+          # fingerprint, rather than installing the .deb (which would also
+          # trust that key for every apt source via /etc/apt/trusted.gpg.d).
+          sury_fpr=15058500A0235D97F5D10063B188E2B695BD4743 # DEB.SURY.ORG Automatic Signing Key
+          keyring=/usr/share/keyrings/debsuryorg-php.gpg
+          . /etc/os-release
+          codename="${VERSION_CODENAME:?}"
+          echo "PHP ${PHP_VERSION} is not preinstalled; installing from packages.sury.org (${codename})"
+          tmp="$(mktemp -d)"
+          curl -fsSL --retry 5 --retry-all-errors -o "${tmp}/keyring.deb" https://packages.sury.org/debsuryorg-archive-keyring.deb
+          dpkg-deb -x "${tmp}/keyring.deb" "${tmp}/x"
+          key="${tmp}/x/usr/share/keyrings/debsuryorg-archive-keyring.gpg"
+          got_fpr="$(gpg --batch --show-keys --with-colons "${key}" | awk -F: '/^fpr:/ {print $10; exit}')"
+          if [[ "${got_fpr}" != "${sury_fpr}" ]]; then
+            echo "::error::packages.sury.org signing key fingerprint is ${got_fpr:-unreadable}, expected ${sury_fpr}"; exit 1
+          fi
+          sudo install -m 0644 "${key}" "${keyring}"
+          echo "deb [signed-by=${keyring}] https://packages.sury.org/php/ ${codename} main" \
+            | sudo tee /etc/apt/sources.list.d/sury-php.list >/dev/null
+          rm -rf "${tmp}"
+          for attempt in 1 2 3 4 5; do
             sudo apt-get update -q || true
             if apt-cache policy "php${PHP_VERSION}-cli" | grep 'Candidate: [0-9]' >/dev/null; then break; fi
-            if (( attempt == 8 )); then
-              echo "::error::php${PHP_VERSION}-cli is not available from ppa:ondrej/php (Launchpad may be down: https://status.canonical.com)"; exit 1
+            if (( attempt == 5 )); then
+              echo "::error::php${PHP_VERSION}-cli is not available from packages.sury.org for ${codename}"; exit 1
             fi
-            echo "php${PHP_VERSION}-cli not visible yet (attempt ${attempt}/8); retrying in $(( attempt * 15 ))s"
-            sleep $(( attempt * 15 ))
+            echo "php${PHP_VERSION}-cli not visible yet (attempt ${attempt}/5); retrying in $(( attempt * 10 ))s"
+            sleep $(( attempt * 10 ))
           done
           apt_install "php${PHP_VERSION}-cli" "php${PHP_VERSION}-common"
         fi
@@ -82,7 +100,7 @@ runs:
         EXTENSIONS: ${{ inputs.extensions }}
       run: |
         set -euo pipefail
-        # Launchpad answers 503 on some downloads; apt keeps what it already
+        # Package mirrors sometimes fail mid-download; apt keeps what it already
         # fetched, so each retry only re-downloads what is still missing.
         apt_install() {
           local attempt
@@ -91,7 +109,7 @@ runs:
             echo "apt-get install failed (attempt ${attempt}/6); retrying in $(( attempt * 15 ))s"
             sleep $(( attempt * 15 ))
           done
-          echo "::error::apt-get install $* failed after 6 attempts (Launchpad may be down: https://status.canonical.com)"
+          echo "::error::apt-get install $* failed after 6 attempts"
           return 1
         }
         php_bin="php${PHP_VERSION}"
@@ -135,7 +153,7 @@ runs:
         COVERAGE: ${{ inputs.coverage }}
       run: |
         set -euo pipefail
-        # Launchpad answers 503 on some downloads; apt keeps what it already
+        # Package mirrors sometimes fail mid-download; apt keeps what it already
         # fetched, so each retry only re-downloads what is still missing.
         apt_install() {
           local attempt
@@ -144,7 +162,7 @@ runs:
             echo "apt-get install failed (attempt ${attempt}/6); retrying in $(( attempt * 15 ))s"
             sleep $(( attempt * 15 ))
           done
-          echo "::error::apt-get install $* failed after 6 attempts (Launchpad may be down: https://status.canonical.com)"
+          echo "::error::apt-get install $* failed after 6 attempts"
           return 1
         }
         case "${COVERAGE}" in

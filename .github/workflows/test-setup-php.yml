@@ -1,0 +1,49 @@
+name: Test setup-php
+
+# Runs .github/actions/setup-php the way callers use it.
+
+on:
+  pull_request:
+    paths:
+      - '.github/actions/setup-php/**'
+      - '.github/workflows/test-setup-php.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  setup-php:
+    name: setup-php (PHP ${{ matrix.php-version }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-latest]
+        php-version: ['8.1', '8.2', '8.3', '8.4']
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Setup PHP
+        id: php
+        uses: ./.github/actions/setup-php
+        with:
+          php-version: ${{ matrix.php-version }}
+          extensions: xml, mbstring, curl
+          coverage: none
+          tools: composer
+
+      - name: Check result
+        shell: bash
+        env:
+          WANT: ${{ matrix.php-version }}
+          GOT: ${{ steps.php.outputs.php-version }}
+        run: |
+          set -euo pipefail
+          [[ "${GOT}" == "${WANT}".* ]] || { echo "::error::output php-version=${GOT}, want ${WANT}.x"; exit 1; }
+          for ext in dom xmlwriter libxml mbstring curl; do
+            php -m | grep -ix "${ext}" >/dev/null || { echo "::error::${ext} not loaded"; exit 1; }
+          done
+          composer --version | grep 'Composer version 2' >/dev/null
